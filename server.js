@@ -1,6 +1,6 @@
 // require: express socket.io shortid
 
-var io = require('socket.io')(3000);
+var io = require('socket.io')(3001);
 var shortid = require('shortid');
 
 console.log('server started');
