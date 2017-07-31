@@ -1,37 +1,75 @@
 // require: express socket.io shortid
 
-var io = require('socket.io')(3001);
+var app = require('express')();
+var server = require('http').Server(app);
+var io = require('socket.io')(server);
+
 var shortid = require('shortid');
+
+server.listen(3001);
 
 console.log('server started');
 
-// console.log(shortid.generate());
+var snakes = {};
 
-var snakes = [];
+var foods = [];
+
+var body_lengths = {};
+
+app.get('/test_connection', function (req, res) {
+    res.send("success");
+});
 
 io.on('connection', function (socket) {
 
-    var thisSnakeId = shortid.generate();
+    console.log('client connected');
 
-    var snake = {
-        id: thisSnakeId,
-        head_x: 0,
-        head_z: 0,
-        body_x: [1, 2, 3, 4],
-        body_z: [0, 0, 0, 0],
-        dir: 'up',
-        speed: 'normal',
-    };
+    socket.emit('connect');
 
-    snakes[thisSnakeId] = snake;
+    var thisSnakeId = "";
 
-    socket.emit('init', snake);
-    socket.broadcast.emit('init_another', snake)
+    socket.on('req_init', function (data) {
+        console.log('req_init');
 
-    socket.broadcast.emit('req_sync');
+        if (snakes[thisSnakeId] != null)
+            delete snakes[thisSnakeId];
+
+        thisSnakeId = shortid.generate();
+
+        var snake = {
+            id: thisSnakeId,
+            head_x: 0,
+            head_z: 0,
+            body_x: [1, 2, 3, 4],
+            body_z: [0, 0, 0, 0],
+            dir: 'up',
+            speed: 'normal',
+            alive: true,
+            killed_by: '',
+        };
+
+        snakes[thisSnakeId] = snake;
+        body_lengths[thisSnakeId] = 4;
+
+        socket.emit('init', snake);
+        socket.emit('init_foods', {'foods': foods});
+        socket.broadcast.emit('sync', snake)
+        socket.broadcast.emit('req_sync');
+    });
 
     socket.on('sync', function (data) {
-        // console.log('sync', JSON.stringify(data));
+        if (data['body_x'].length != data['body_z'].length){
+            console.log('body lengths not equal!');
+            return;
+        }
+
+        if (data['body_x'].length != body_lengths[thisSnakeId]) {
+            console.log('snake length unsynced!');
+            return;
+        }
+
+        //console.log('sync', JSON.stringify(data));
+
 
         var snake = snakes[thisSnakeId];
 
@@ -41,38 +79,90 @@ io.on('connection', function (socket) {
         snake.body_z = data['body_z'];
         snake.dir = data['dir'];
         snake.speed = data['speed'];
+        snake.alive = data['alive'];
+        snake.killed_by = data['killed_by'];
 
-        socket.emit('sync', snake);
-        socket.broadcast.emit('sync_another', snake);
-
+        socket.broadcast.emit('sync', snake);
     });
 
-    // console.log('client connected, broadcast spawn, id:', thisSnakeId);
+    socket.on('generate_food', function (data) {
+        //console.log('generate_food', JSON.stringify(data));
 
-    // for (var snakeId in snakes) {
-    //  if (snakeId == thisSnakeId)
-    //      continue;
+        var food = {
+            x: data['x'],
+            z: data['z'],
+        }
 
-    //  socket.emit('spawn', snakes[snakeId]);
-    // }
+        foods.push(food);
 
-    // socket.emit('spawn');
+        socket.broadcast.emit('generate_food', food);
+    });
 
-    // socket.broadcast.emit('spawn');
+    socket.on('eat_food', function (data) {
+        //console.log('eat_food', JSON.stringify(data));
+
+        var success = false;
+
+        var food = {
+            x: data['x'],
+            z: data['z'],
+        }
+
+        for (var i = 0; i < foods.length; i++) {
+            if (foods[i].x == food.x && foods[i].z == food.z) {
+                foods.splice(i, 1);
+                body_lengths[thisSnakeId] ++;
+                success = true;
+                break;
+            }
+        }
+
+        if (success) {
+            socket.broadcast.emit('destroy_food', food);
+        }
+    });
+
+    socket.on('game_over', function (data) {
+        console.log('game_over', thisSnakeId);
+
+        var snake = snakes[thisSnakeId];
+
+        for (var i = 0; i < snake.body_x.length; i++) {
+            foods.push({x: snake.body_x[i], z: snake.body_z[i]});
+        }
+
+        socket.broadcast.emit('another_game_over', snake);
+
+        socket.emit('close');
+    });
+
+    socket.on('quit', function (data) {
+        console.log('quit', thisSnakeId);
+
+        var snake = snakes[thisSnakeId];
+
+        socket.broadcast.emit('another_quit', snake);
+
+        socket.emit('close');
+    });
 
     // io.sockets.emit('spawn');
-
-    // socket.on('move', function (data) {
-    //  data.id = thisSnakeId;
-    //  console.log('client moved', JSON.stringify(data));
-    // });
 
     socket.on('disconnect', function () {
         console.log('client disconnected');
 
-        delete snakes[thisSnakeId];
+        var snake = snakes[thisSnakeId];
 
-        // socket.broadcast.emit('disconnected', {id: thisSnakeId});
+        if (snake != null) {
+            if (snake.alive) {
+                socket.broadcast.emit('another_disconnect', snake);
+            }
+            delete snakes[thisSnakeId];
+        }
+        
+        if (Object.keys(snakes).length == 0) {
+            console.log('all clients disconnected');
+            foods = [];
+        }
     });
 });
-
