@@ -20,6 +20,10 @@ app.get('/test_connection', function (req, res) {
     res.send("success");
 });
 
+function getRandomInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 io.on('connection', function (socket) {
 
     console.log('client connected');
@@ -36,12 +40,15 @@ io.on('connection', function (socket) {
 
         thisSnakeId = shortid.generate();
 
+        var x = getRandomInt(-21, 21);
+        var z = getRandomInt(-21, 21);
+
         var snake = {
             id: thisSnakeId,
-            head_x: 0,
-            head_z: 0,
-            body_x: [1, 2, 3, 4],
-            body_z: [0, 0, 0, 0],
+            head_x: x,
+            head_z: z,
+            body_x: [x + 1, x + 2, x + 3, x + 4],
+            body_z: [z, z, z, z],
             dir: 'up',
             speed: 'normal',
             alive: true,
